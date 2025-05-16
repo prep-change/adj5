@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>釣銭準備ツール</title>
+  <script type="module" src="main.js" defer></script>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 p-4 text-sm">
+  <div class="max-w-xl mx-auto bg-white rounded-2xl shadow p-4">
+    <h1 class="text-xl font-bold mb-4">釣銭準備ツール</h1>
+    <form id="form" class="space-y-2">
+      <div class="grid grid-cols-4 gap-2 items-center">
+        <div class="font-bold">金種</div>
+        <div class="font-bold">目標</div>
+        <div class="font-bold">在庫</div>
+        <div class="font-bold">使用</div>
+        ${[10000,5000,1000,500,100,50,10,5,1].map(denom => `
+          <div>${denom}円</div>
+          <div id="target-${denom}"></div>
+          <input type="number" id="stock-${denom}" class="border p-1 w-full" min="0">
+          <div id="use-${denom}"></div>
+        `).join('')}
+      </div>
+      <div class="flex justify-between items-center mt-4">
+        <button type="submit" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-1 rounded">計算する</button>
+        <button type="button" id="adjust" class="bg-green-500 hover:bg-green-600 text-white px-4 py-1 rounded">調整</button>
+      </div>
+    </form>
+    <div id="result" class="mt-4 whitespace-pre-wrap"></div>
+    <div id="loading" class="mt-2 text-blue-600 hidden">調整中です...</div>
+  </div>
+
+  <script type="module">
+    const target = {5000: 15, 1000: 42, 500: 50, 100: 100, 50: 50, 10: 100, 5: 16, 1: 20};
+    const form = document.getElementById('form');
+    const result = document.getElementById('result');
+    const loading = document.getElementById('loading');
+    const adjustBtn = document.getElementById('adjust');
+
+    const denoms = Object.keys(target).map(Number);
+    const useFields = {};
+
+    denoms.forEach(denom => {
+      document.getElementById(`target-${denom}`).textContent = target[denom];
+      useFields[denom] = document.getElementById(`use-${denom}`);
+    });
+
+    let latestInput = null;
+
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      result.textContent = '';
+      const input = {};
+      denoms.forEach(denom => {
+        input[denom] = Number(document.getElementById(`stock-${denom}`).value || 0);
+      });
+      latestInput = input;
+      const usage = {};
+      const shortage = {};
+      denoms.forEach(denom => {
+        usage[denom] = Math.min(input[denom], target[denom]);
+        if (usage[denom] < target[denom]) {
+          shortage[denom] = target[denom] - usage[denom];
+        }
+        useFields[denom].textContent = usage[denom];
+      });
+      const shortageText = Object.entries(shortage).map(([k, v]) => `${k}円×${v}`).join('\n') || '不足なし';
+      result.textContent = `不足金種:\n${shortageText}`;
+    });
+
+    adjustBtn.addEventListener('click', () => {
+      if (!latestInput) return;
+      loading.classList.remove('hidden');
+      result.textContent = '';
+      const worker = new Worker('worker.js', { type: 'module' });
+      worker.postMessage({ input: latestInput, baseTargets: target });
+      worker.onmessage = e => {
+        loading.classList.add('hidden');
+        const r = e.data;
+        if (!r) {
+          result.textContent = '最適な調整が見つかりませんでした';
+          return;
+        }
+        const shortageText = Object.entries(r.shortage).map(([k, v]) => `${k}円×${v}`).join('\n') || 'なし';
+        const compText = Object.entries(r.compensation).map(([k, v]) => `${k}円×${v}`).join('\n') || 'なし';
+        denoms.forEach(denom => {
+          useFields[denom].textContent = r.adjusted[denom];
+        });
+        result.textContent = `不足金種:\n${shortageText}\n\n補填内訳:\n${compText}`;
+        worker.terminate();
+      };
+    });
+  </script>
+</body>
+</html>
