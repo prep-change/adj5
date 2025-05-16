@@ -85,10 +85,10 @@
       );
 
       document.getElementById("adjustmentResult").innerText = "調整中です...";
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 50));
 
       const input = latestInput;
-      const best = findOptimalAdjustment(input, baseTargets, 10);
+      const best = findOptimalAdjustment(input, baseTargets);
       if (!best) {
         document.getElementById("adjustmentResult").innerText = "※ 補填できませんでした。";
         return;
@@ -119,14 +119,9 @@
     }
 
     function findOptimalAdjustment(input, baseTargets, maxTry = 10) {
-      let best = null;
-
       for (let t = 0; t <= maxTry; t++) {
         const patterns = generateAdjustmentPatterns(baseTargets, t, excludedShortageAdjustments);
         for (let newTargets of patterns) {
-          // 打ち切り条件：調整増加が3枚を超えたら中断
-          if (t > 3) break;
-
           const shortage = {};
           let shortageTotal = 0, shortageCount = 0;
 
@@ -147,18 +142,12 @@
           }).filter(([_, count]) => count > 0);
 
           const combo = knapsack(usableCoins, shortageTotal);
-          if (!combo) continue;
-
-          const 補填和 = totalCoins(combo);
-          const total = shortageCount + 補填和;
-
-          if (!best || total < best.total) {
-            best = { newTargets, shortage, shortageCount, shortageTotal, combo, 補填和, total };
+          if (combo) {
+            return { newTargets, shortage, shortageCount, shortageTotal, combo };
           }
         }
       }
-
-      return best;
+      return null;
     }
 
     function generateAdjustmentPatterns(baseTargets, extraCount, excludeSet) {
@@ -215,8 +204,7 @@
     }
 
     function totalCoins(combo) {
-      if (!combo) return Infinity;
-      return Object.values(combo).reduce((a, b) => a + b, 0);
+      return Object.values(combo).reduce((sum, c) => sum + c, 0);
     }
   </script>
 </body>
