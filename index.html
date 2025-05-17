@@ -2,148 +2,210 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>釣銭準備</title>
-  <script defer>
-    document.addEventListener("DOMContentLoaded", () => {
-      const yenTypes = [10000, 5000, 1000, 500, 100, 50, 10, 5, 1];
-      const target = { 5000: 15, 1000: 42, 500: 50, 100: 100, 50: 50, 10: 100, 5: 16, 1: 20 };
-
-      function createInputs() {
-        const container = document.getElementById("inputs");
-        yenTypes.forEach((yen) => {
-          const div = document.createElement("div");
-          div.className = "flex justify-between items-center mb-1";
-          div.innerHTML = `
-            <label class="w-16">${yen}円</label>
-            <input id="input-${yen}" type="number" min="0" value="0"
-              class="w-24 p-1 border rounded text-right" />
-          `;
-          container.appendChild(div);
-        });
-      }
-
-      function getInputValues() {
-        const result = {};
-        yenTypes.forEach((yen) => {
-          result[yen] = parseInt(document.getElementById(`input-${yen}`).value) || 0;
-        });
-        return result;
-      }
-
-      function calculateShortage(input) {
-        const shortage = {};
-        for (const yen in target) {
-          const t = target[yen];
-          const i = input[yen] || 0;
-          if (i < t) shortage[yen] = t - i;
-        }
-        return shortage;
-      }
-
-      function formatShortage(shortage) {
-        if (Object.keys(shortage).length === 0) return "不足なし";
-        return Object.entries(shortage)
-          .map(([yen, num]) => `${yen}円 × ${num}枚`)
-          .join(", ");
-      }
-
-      function generateAdjustmentPatterns(shortage, maxIncrement = 4) {
-        const keys = Object.keys(shortage);
-        const results = [];
-
-        function backtrack(index, current) {
-          if (index === keys.length) {
-            results.push({ ...current });
-            return;
-          }
-          const key = keys[index];
-          const maxAdd = maxIncrement;
-          for (let add = 0; add <= maxAdd; add++) {
-            current[key] = shortage[key] + add;
-            backtrack(index + 1, current);
-          }
-        }
-
-        backtrack(0, {});
-        return results;
-      }
-
-      function getTotalValue(counts) {
-        return Object.entries(counts).reduce(
-          (sum, [yen, num]) => sum + parseInt(yen) * num,
-          0
-        );
-      }
-
-      function compensate(shortagePattern, input) {
-        const shortageTotal = getTotalValue(shortagePattern);
-        const stock = { ...input };
-        yenTypes.forEach((yen) => {
-          stock[yen] = (stock[yen] || 0) - (shortagePattern[yen] || 0);
-        });
-
-        const compensation = {};
-        let remaining = shortageTotal;
-
-        for (const yen of yenTypes) {
-          const available = stock[yen] || 0;
-          const count = Math.min(Math.floor(remaining / yen), available);
-          if (count > 0) {
-            compensation[yen] = count;
-            remaining -= yen * count;
-          }
-        }
-
-        return remaining === 0 ? compensation : null;
-      }
-
-      function formatCompensation(comp) {
-        if (!comp) return "補填不能";
-        return Object.entries(comp)
-          .map(([yen, num]) => `${yen}円 × ${num}枚`)
-          .join(", ");
-      }
-
-      function calculate() {
-        const input = getInputValues();
-        const shortage = calculateShortage(input);
-        document.getElementById("shortage").textContent = formatShortage(shortage);
-
-        const patterns = generateAdjustmentPatterns(shortage, 4);
-        let best = null;
-
-        for (const pattern of patterns) {
-          const comp = compensate(pattern, input);
-          if (comp) {
-            best = { pattern, comp };
-            break; // 最短解を即採用
-          }
-        }
-
-        if (best) {
-          const display = formatShortage(best.pattern) + " → " + formatCompensation(best.comp);
-          document.getElementById("result").textContent = display;
-        } else {
-          document.getElementById("result").textContent = "補填できる組み合わせが見つかりませんでした。";
-        }
-      }
-
-      document.getElementById("calc").addEventListener("click", calculate);
-      createInputs();
-    });
-  </script>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-gray-100 p-4">
-  <div class="max-w-md mx-auto bg-white p-4 rounded shadow">
-    <h1 class="text-xl font-bold mb-4">釣銭準備ツール</h1>
-    <div id="inputs" class="mb-4"></div>
-    <button id="calc" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded w-full">計算する</button>
-    <div class="mt-4">
-      <p><strong>不足金種:</strong> <span id="shortage" class="text-red-600"></span></p>
-      <p><strong>補填内訳:</strong> <span id="result" class="text-green-600"></span></p>
-    </div>
+<body class="bg-gray-100">
+  <div class="max-w-2xl mx-auto p-4">
+    <h1 class="text-2xl font-bold mb-4 text-center">釣銭準備</h1>
+
+    <div id="input-area" class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6"></div>
+
+    <button onclick="calculateShortage()" class="w-full bg-blue-500 text-white py-2 rounded mb-4">不足を計算する</button>
+    <button onclick="adjustShortage()" class="w-full bg-green-500 text-white py-2 rounded">調整</button>
+
+    <div id="shortageResult" class="mt-6 bg-white p-4 rounded shadow whitespace-pre-wrap"></div>
+    <div id="adjustmentResult" class="mt-6 bg-white p-4 rounded shadow whitespace-pre-wrap"></div>
   </div>
+
+  <script>
+    const denominations = [10000, 5000, 1000, 500, 100, 50, 10, 5, 1];
+    const baseTargets = {
+      10000: 0,
+      5000: 15,
+      1000: 42,
+      500: 50,
+      100: 100,
+      50: 50,
+      10: 100,
+      5: 16,
+      1: 20
+    };
+
+    let latestInput = {};
+    let excludedShortageAdjustments = new Set();
+    const knapsackCache = new Map();
+
+    const inputArea = document.getElementById("input-area");
+    denominations.forEach(denom => {
+      const wrapper = document.createElement("div");
+      wrapper.className = "flex items-center space-x-2 min-w-0";
+      wrapper.innerHTML = `
+        <label class="w-20 font-medium">${denom}円</label>
+        <input id="input${denom}" type="number" min="0" value="" class="flex-1 p-1 border rounded w-full" />
+        <label class="text-sm whitespace-nowrap">
+          <input id="exclude${denom}" type="checkbox" class="mr-1" />
+          固定
+        </label>
+      `;
+      inputArea.appendChild(wrapper);
+    });
+
+    function calculateShortage() {
+      const input = {};
+      denominations.forEach(denom => {
+        input[denom] = parseInt(document.getElementById(`input${denom}`).value || "0", 10);
+      });
+      latestInput = input;
+
+      let resultText = `【調整前不足金種】\n`;
+      let total = 0;
+      for (let denom of denominations) {
+        const shortage = Math.max(0, baseTargets[denom] - input[denom]);
+        if (shortage > 0) {
+          resultText += `${denom}円×${shortage}枚 = ${denom * shortage}円\n`;
+          total += denom * shortage;
+        }
+      }
+      resultText += `不足合計　${total.toLocaleString()}円`;
+
+      document.getElementById("shortageResult").innerText = resultText;
+      document.getElementById("adjustmentResult").innerText = "";
+    }
+
+    async function adjustShortage() {
+      if (!latestInput || Object.keys(latestInput).length === 0) {
+        document.getElementById("adjustmentResult").innerText = "※ 先に「不足を計算する」を押してください。";
+        return;
+      }
+
+      excludedShortageAdjustments = new Set(
+        denominations.filter(denom => document.getElementById(`exclude${denom}`).checked)
+      );
+
+      document.getElementById("adjustmentResult").innerText = "調整中です...";
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      const input = latestInput;
+      const best = findOptimalAdjustment(input, baseTargets);
+      if (!best) {
+        document.getElementById("adjustmentResult").innerText = "※ 補填できませんでした。";
+        return;
+      }
+
+      let resultText = `【調整後不足金種】\n`;
+      const { shortage, shortageTotal, combo } = best;
+
+      for (let denom of denominations) {
+        if (shortage[denom]) {
+          resultText += `${denom}円×${shortage[denom]}枚 = ${denom * shortage[denom]}円\n`;
+        }
+      }
+      resultText += `不足合計　${shortageTotal.toLocaleString()}円\n\n`;
+
+      resultText += `【補填内訳】\n`;
+      let 補填合計 = 0;
+      for (let denom of denominations) {
+        if (combo[denom]) {
+          const amount = denom * combo[denom];
+          補填合計 += amount;
+          resultText += `${denom}円×${combo[denom]}枚 = ${amount.toLocaleString()}円\n`;
+        }
+      }
+      resultText += `補填合計　${補填合計.toLocaleString()}円`;
+
+      document.getElementById("adjustmentResult").innerText = resultText;
+    }
+
+    function findOptimalAdjustment(input, baseTargets, maxTry = 10) {
+      for (let t = 0; t <= maxTry; t++) {
+        const patterns = generateAdjustmentPatterns(baseTargets, t, excludedShortageAdjustments);
+        for (let newTargets of patterns) {
+          const shortage = {};
+          let shortageTotal = 0, shortageCount = 0;
+
+          for (let denom of denominations) {
+            const need = newTargets[denom] || 0;
+            const lack = Math.max(0, need - input[denom]);
+            if (lack > 0) {
+              shortage[denom] = lack;
+              shortageTotal += denom * lack;
+              shortageCount += lack;
+            }
+          }
+
+          const usableCoins = denominations.map(denom => {
+            const adjustedInput = input[denom] + (shortage[denom] || 0);
+            const usable = adjustedInput - (newTargets[denom] || 0);
+            return [denom, usable];
+          }).filter(([_, count]) => count > 0);
+
+          const combo = knapsack(usableCoins, shortageTotal);
+          if (combo) {
+            return { newTargets, shortage, shortageCount, shortageTotal, combo };
+          }
+        }
+      }
+      return null;
+    }
+
+    function generateAdjustmentPatterns(baseTargets, extraCount, excludeSet) {
+      if (extraCount === 0) return [Object.assign({}, baseTargets)];
+      const patterns = [];
+      const denoms = Object.keys(baseTargets).map(Number);
+
+      function backtrack(i, remaining, current) {
+        if (i === denoms.length) {
+          if (remaining === 0) patterns.push({ ...current });
+          return;
+        }
+        const denom = denoms[i];
+        const limit = excludeSet.has(denom) ? 0 : ((denom === 5000) ? Math.min(1, remaining) : remaining);
+        for (let add = 0; add <= limit; add++) {
+          current[denom] = baseTargets[denom] + add;
+          backtrack(i + 1, remaining - add, current);
+        }
+      }
+
+      backtrack(0, extraCount, {});
+      return patterns;
+    }
+
+    function knapsack(usableCoins, targetAmount) {
+      const key = JSON.stringify(usableCoins) + "|" + targetAmount;
+      if (knapsackCache.has(key)) return knapsackCache.get(key);
+
+      const dp = Array(targetAmount + 1).fill(null);
+      dp[0] = {};
+
+      for (let [denom, count] of usableCoins) {
+        for (let a = targetAmount; a >= 0; a--) {
+          if (dp[a] !== null) {
+            for (let k = 1; k <= count; k++) {
+              const newAmount = a + denom * k;
+              if (newAmount > targetAmount) break;
+              const newCombo = { ...dp[a] };
+              newCombo[denom] = (newCombo[denom] || 0) + k;
+
+              if (
+                dp[newAmount] === null ||
+                totalCoins(newCombo) < totalCoins(dp[newAmount])
+              ) {
+                dp[newAmount] = newCombo;
+              }
+            }
+          }
+        }
+      }
+
+      knapsackCache.set(key, dp[targetAmount]);
+      return dp[targetAmount];
+    }
+
+    function totalCoins(combo) {
+      return Object.values(combo).reduce((sum, c) => sum + c, 0);
+    }
+  </script>
 </body>
 </html>
